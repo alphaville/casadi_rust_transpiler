@@ -17,13 +17,14 @@ def get_function_from_ast(ast, function_name):
 crust_types = {'double': 'f64'}
 crust_default_init = {'double': 0.0, 'int': 0}
 crust_function_map = {'cos': 'f64::cos',
-                      'sin': 'f64::sin'}
+                      'sin': 'f64::sin',
+                      'sqrt': 'f64::sqrt'}
 
 
 def crust_function_mapping(fname):
     p = re.compile('phi_[a-z]+_fmax', re.IGNORECASE)
     if p.match(fname) is not None:
-        return 'f64::fmax'
+        return 'f64::max'
     return crust_function_map[fname]
 
 
@@ -32,7 +33,6 @@ def declaration_to_rust(dec):
     var_name = dec.name
     var_type = dec.type.type.names[0]
     var_init = crust_default_init[var_type] if dec.init is None else dec.init.value
-    print(var_init)
     rust_type = crust_types[var_type]
     return 'let mut %s: %s = %s;' % (var_name, rust_type, var_init)
 
@@ -42,6 +42,7 @@ def assignment_to_rust(dec):
     var_name = dec.lvalue.name
     rhs = dec.rvalue
     stmt = var_name + ' = '
+    generator = c_generator.CGenerator()
     if isinstance(rhs, c_ast.BinaryOp):
         operator = rhs.op
         op_left = rhs.left.name
@@ -56,7 +57,20 @@ def assignment_to_rust(dec):
             fname = crust_function_mapping(fname)
             args = ",".join([x.name for x in rhs.args.exprs])
             stmt += '%s(%s)' %(fname, args)
+    elif isinstance(rhs, c_ast.Constant):
+        stmt += generator.visit(rhs)
+    elif isinstance(rhs, c_ast.TernaryOp):
+        stmt += generator.visit(rhs.iftrue)
     return stmt + ';'
+
+
+def crust(blocks):
+    for node in blocks:
+        if isinstance(node, c_ast.Decl):
+            stmt = declaration_to_rust(node)
+        elif isinstance(node, c_ast.Assignment):
+            stmt = assignment_to_rust(node)
+        print(stmt)
 
 
 ast = parse_file('c/xcst_belfast.c', use_cpp=True, cpp_path='clang',
@@ -70,15 +84,13 @@ f_block_items = node_body.block_items
 
 
 d0 = node_body.block_items[0]
-print(declaration_to_rust(d0))
+declaration_to_rust(d0)
 
 # 36: fmax
 # 37: sq
 # 41: division
-d0 = node_body.block_items[41]
-print(assignment_to_rust(d0))
-
-
-
-d0 = node_body.block_items[7]
+d0 = node_body.block_items[28]
 print(d0)
+assignment_to_rust(d0)
+
+crust(blocks=node_body.block_items)
