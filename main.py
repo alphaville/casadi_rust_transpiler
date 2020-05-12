@@ -59,7 +59,7 @@ def assignment_to_rust(dec):
     return stmt + ';'
 
 
-ast = parse_file('test.c', use_cpp=True, cpp_path='clang',
+ast = parse_file('c/xcst_belfast.c', use_cpp=True, cpp_path='clang',
                  cpp_args=['-E', r'-Iutils/fake'])
 
 

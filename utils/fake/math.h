@@ -1,0 +1,3 @@
+#ifndef MATH_H_LIB_SPOOFING
+#define MATH_H_LIB_SPOOFING
+#endif
