@@ -1,8 +1,7 @@
 from __future__ import print_function
 import re
-import sys
 
-from pycparser import c_parser, c_ast, c_generator, parse_file
+from pycparser import c_ast, c_generator, parse_file
 
 
 def get_function_from_ast(ast, function_name):
@@ -22,7 +21,7 @@ crust_function_map = {'cos': 'f64::cos',
 
 
 def crust_function_mapping(fname):
-    p = re.compile('phi_[a-z]+_fmax', re.IGNORECASE)
+    p = re.compile('[a-z_]+_[a-z]+_fmax', re.IGNORECASE)
     if p.match(fname) is not None:
         return 'f64::max'
     return crust_function_map[fname]
@@ -47,10 +46,16 @@ def assignment_to_rust(dec):
         operator = rhs.op
         op_left = rhs.left.name
         op_right = rhs.right.name
-        stmt += op_left + operator + op_right
+        if operator in ['<=', '>=', '==', '<', '>']:
+
+            stmt += 'if %s %s %s {1.0} else {0.0}' \
+                % (op_left, operator, op_right)
+            pass
+        else:
+            stmt += op_left + operator + op_right
     elif isinstance(rhs, c_ast.FuncCall):
         fname = rhs.name.name
-        p = re.compile('phi_[a-z]+_sq', re.IGNORECASE)
+        p = re.compile('[a-z_]+_[a-z]+_sq', re.IGNORECASE)
         if p.match(fname) is not None:
             stmt += 'f64::powi(' + rhs.args.exprs[0].name + ', 2)'
         else:
@@ -61,23 +66,39 @@ def assignment_to_rust(dec):
         stmt += generator.visit(rhs)
     elif isinstance(rhs, c_ast.TernaryOp):
         stmt += generator.visit(rhs.iftrue)
+    elif isinstance(rhs, c_ast.UnaryOp):
+        if rhs.op == '!':
+            rhs_var = rhs.expr.name
+            stmt += " if f64::abs(%s) < f64::EPSILON { 1.0 } else { 0.0 }" \
+                   % rhs_var
     return stmt + ';'
 
 
+def ifblock_to_rust(dec):
+    generator = c_generator.CGenerator()
+    return generator.visit(dec.iftrue) + ';'
+
+
 def crust(blocks):
+    code = []
     for node in blocks:
         if isinstance(node, c_ast.Decl):
             stmt = declaration_to_rust(node)
         elif isinstance(node, c_ast.Assignment):
             stmt = assignment_to_rust(node)
-        print(stmt)
+        elif isinstance(node, c_ast.If):
+            stmt = ifblock_to_rust(node)
+        elif isinstance(node, c_ast.Return):
+            stmt = "return 0;"
+        code += [stmt]
+    return code
 
 
-ast = parse_file('c/xcst_belfast.c', use_cpp=True, cpp_path='clang',
+ast = parse_file('c/xgrd_belfast.c', use_cpp=True, cpp_path='clang',
                  cpp_args=['-E', r'-Iutils/fake'])
 
 
-f0 = get_function_from_ast(ast, 'phi_ZPljYgYgKSBLjmbdpTRb_f0')
+f0 = get_function_from_ast(ast, 'grad_phi_ZPljYgYgKSBLjmbdpTRb_f0')
 
 node_body = f0.body
 f_block_items = node_body.block_items
@@ -90,7 +111,11 @@ declaration_to_rust(d0)
 # 37: sq
 # 41: division
 d0 = node_body.block_items[28]
-print(d0)
 assignment_to_rust(d0)
 
-crust(blocks=node_body.block_items)
+code = crust(blocks=node_body.block_items)
+
+with open("rust/rusty_function.rs", "w") as fh:
+    fh.write("#[allow(unused_assignments)]\nfn casadi(arg: &[&[f64]], res: &mut [&mut [f64]]) -> u16 {\n\t")
+    fh.write("\n\t".join(code))
+    fh.write("\n}\n")
