@@ -2,6 +2,11 @@ from __future__ import print_function
 import re
 
 from pycparser import c_ast, c_generator, parse_file
+import crust_casadi as cc
+
+x = cc.Parser('c/xgrd_belfast.c')
+f = x.get_function_by_name('grad_phi_ZPljYgYgKSBLjmbdpTRb_f0')
+z = cc.Crust()
 
 
 def get_function_from_ast(ast, function_name):
@@ -13,10 +18,13 @@ def get_function_from_ast(ast, function_name):
     return node
 
 
-crust_types = {'double': 'f64'}
+crust_types = {'double': 'f64',
+               'int': 'i32',
+               'long': 'i64'}
 crust_default_init = {'double': 0.0, 'int': 0}
 crust_function_map = {'cos': 'f64::cos',
                       'sin': 'f64::sin',
+                      'tan': 'f64::tan',
                       'sqrt': 'f64::sqrt'}
 
 
@@ -47,10 +55,8 @@ def assignment_to_rust(dec):
         op_left = rhs.left.name
         op_right = rhs.right.name
         if operator in ['<=', '>=', '==', '<', '>']:
-
             stmt += 'if %s %s %s {1.0} else {0.0}' \
                 % (op_left, operator, op_right)
-            pass
         else:
             stmt += op_left + operator + op_right
     elif isinstance(rhs, c_ast.FuncCall):
@@ -99,7 +105,6 @@ ast = parse_file('c/xgrd_belfast.c', use_cpp=True, cpp_path='clang',
 
 
 f0 = get_function_from_ast(ast, 'grad_phi_ZPljYgYgKSBLjmbdpTRb_f0')
-
 node_body = f0.body
 f_block_items = node_body.block_items
 
