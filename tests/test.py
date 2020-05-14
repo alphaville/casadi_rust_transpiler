@@ -27,11 +27,7 @@ class CrustTest(unittest.TestCase):
         p = cs.SX.sym('p', 2)
         f = cs.sin(cs.norm_2(p)) * cs.dot(xi, p) * cs.norm_2(u)
         df = cs.gradient(f, u)
-        fun = cs.Function('df', [u, xi, p], [df])
-
-        print(fun.sz_arg())
-        print(fun.sz_res())
-
+        _fun = cs.Function('df', [u, xi, p], [df])
 
 
 if __name__ == '__main__':

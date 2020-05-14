@@ -5,8 +5,14 @@ import jinja2
 import subprocess
 import shutil
 import json
+import os
 
 __all__ = ['CasadiRustTranspiler']
+
+
+def make_dir_if_not_exists(directory):
+    if not os.path.exists(directory):
+        os.makedirs(directory)
 
 
 class Parser:
@@ -184,6 +190,8 @@ class CasadiRustTranspiler:
         self.function_alias = function_alias
         self.rust_dir = rust_dir
         self.c_dir = c_dir
+        make_dir_if_not_exists(c_dir)
+        make_dir_if_not_exists(rust_dir)
 
     def transpile(self, rust_function_name=None):
         # 1. Generate C file and move to c/
