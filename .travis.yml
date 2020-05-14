@@ -1,0 +1,35 @@
+language: python
+
+matrix:
+  include:
+
+    # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    # [Job 1] Xenial
+    # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    - os: linux
+      dist: xenial
+      addons:
+        apt:
+          sources:
+            - deadsnakes
+          packages:
+            - gcc
+            - python3.6
+            - python3.6-dev
+      env:
+        - PYTHON_VERSION=3.6
+      python: "3.6"
+
+
+before_install:
+  - set -e
+  - python3 --version
+
+install:
+  - bash ci/install.sh
+
+script:
+  - bash ci/script.sh
+
+after_script: set +e
+

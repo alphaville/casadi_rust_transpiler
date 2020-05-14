@@ -6,7 +6,7 @@ import subprocess
 import shutil
 import json
 
-__all__ = ['Crust', 'CasadiRustTranspiler']
+__all__ = ['CasadiRustTranspiler']
 
 
 class Parser:
@@ -31,24 +31,36 @@ class Crust:
     __CRUST_TYPES = {'double': 'f64',
                      'int': 'i32',
                      'long': 'i64'}
-    __CRUST_DEFAULT_INIT = {'double': 0.0, 'int': 0}
+    __CRUST_DEFAULT_INIT = {'double': 0.0, 'int': 0, 'long': 0}
     __CRUST_FUNCTION_MAP = {'cos': 'f64::cos',
                             'sin': 'f64::sin',
                             'tan': 'f64::tan',
+                            'exp': 'f64::exp',
+                            'acos': 'f64::acos',
+                            'asin': 'f64::asin',
+                            'atan': 'f64::atan',
+                            'fabs': 'f64::abs',
                             'sqrt': 'f64::sqrt'}
 
-    def __init__(self, file_name, function_name='casadi'):
+    def __init__(self, file_name, casadi_function, function_name='casadi'):
         parser = Parser(file_name)
         self.f = parser.get_function_by_name(function_name)
         self.code = None
         self.file_name = file_name
         self.function_name = function_name
+        self.casadi_function = casadi_function
 
     @staticmethod
     def __crust_function_mapping(fname):
-        p = re.compile('[a-z_]+_[a-z]+_fmax', re.IGNORECASE)
+        p = re.compile('[a-z_]+_fmax', re.IGNORECASE)
         if p.match(fname) is not None:
             return 'f64::max'
+        p = re.compile('[a-z_]+_fmin', re.IGNORECASE)
+        if p.match(fname) is not None:
+            return 'f64::min'
+        p = re.compile('[a-z_]+_sign', re.IGNORECASE)
+        if p.match(fname) is not None:
+            return 'f64::signum'
         return Crust.__CRUST_FUNCTION_MAP[fname]
 
     @staticmethod
@@ -59,6 +71,16 @@ class Crust:
         rust_type = Crust.__CRUST_TYPES[var_type]
         return 'let mut %s: %s = %s;' % (var_name, rust_type, var_init)
 
+
+    @staticmethod
+    def __unwrap(node):
+        if isinstance(node, c_ast.ID):
+            return node.name
+        elif isinstance(node, c_ast.Constant):
+            return node.value
+        else:
+            raise Exception("Unknown node type")
+
     @staticmethod
     def __assignment_to_rust(dec):
         var_name = dec.lvalue.name
@@ -67,8 +89,8 @@ class Crust:
         generator = c_generator.CGenerator()
         if isinstance(rhs, c_ast.BinaryOp):
             operator = rhs.op
-            op_left = rhs.left.name
-            op_right = rhs.right.name
+            op_left = Crust.__unwrap(rhs.left)
+            op_right = Crust.__unwrap(rhs.right)
             if operator in ['<=', '>=', '==', '<', '>']:
                 stmt += 'if %s %s %s {1.0} else {0.0}' \
                         % (op_left, operator, op_right)
@@ -78,20 +100,22 @@ class Crust:
             fname = rhs.name.name
             p = re.compile('[a-z_]+_[a-z]+_sq', re.IGNORECASE)
             if p.match(fname) is not None:
-                stmt += 'f64::powi(' + rhs.args.exprs[0].name + ', 2)'
+                stmt += 'f64::powi(' + Crust.__unwrap(rhs.args.exprs[0]) + ', 2)'
             else:
                 fname = Crust.__crust_function_mapping(fname)
-                args = ",".join([x.name for x in rhs.args.exprs])
+                args = ",".join([Crust.__unwrap(x) for x in rhs.args.exprs])
                 stmt += '%s(%s)' % (fname, args)
         elif isinstance(rhs, c_ast.Constant):
             stmt += generator.visit(rhs)
         elif isinstance(rhs, c_ast.TernaryOp):
             stmt += generator.visit(rhs.iftrue)
         elif isinstance(rhs, c_ast.UnaryOp):
+            rhs_var = Crust.__unwrap(rhs.expr)
             if rhs.op == '!':
-                rhs_var = rhs.expr.name
                 stmt += " if f64::abs(%s) < f64::EPSILON { 1.0 } else { 0.0 }" \
                         % rhs_var
+            else:
+                stmt += rhs.op + rhs_var
         return stmt + ';'
 
     @staticmethod
@@ -128,7 +152,14 @@ class Crust:
 
     def to_rust_file(self, file_name=None, casadi_function_name='casadi'):
         tmpl_supplement = Crust.__get_template("supplement.rs")
-        tmpl_supplement_out = tmpl_supplement.render(sz={'results': 1},
+        sizes = {'results': self.casadi_function.sz_res(),
+                 'args': self.casadi_function.sz_arg(),
+                 'wspace': self.casadi_function.sz_w(),
+                 'iwspace': self.casadi_function.sz_iw(),
+                 'result_dim': self.casadi_function.size_out(0),
+                 'args_dims': [self.casadi_function.size_in(i) for i in range(3)],
+                 }
+        tmpl_supplement_out = tmpl_supplement.render(sz=sizes,
                                                      casadi_function_name=casadi_function_name,
                                                      file_name=file_name)
 
@@ -162,10 +193,11 @@ class CasadiRustTranspiler:
         shutil.move(c_file_name, c_file_path)
 
         function_name = '%s_f0' % self.function_alias
-        crust = Crust(c_file_path, function_name)
+        crust = Crust(c_file_path, self.casadi_function, function_name)
         crust.parse()
         the_rust_function_name = self.function_alias if rust_function_name is None else rust_function_name
-        crust.to_rust_file("%s/%s.rs" % (self.rust_dir, self.function_alias), the_rust_function_name)
+        crust.to_rust_file("%s/%s.rs" % (self.rust_dir, self.function_alias),
+                           the_rust_function_name)
 
     def compile(self):
         command = ["rustc", "%s.rs" % self.function_alias]
