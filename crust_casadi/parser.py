@@ -5,8 +5,14 @@ import jinja2
 import subprocess
 import shutil
 import json
+import os
 
 __all__ = ['CasadiRustTranspiler']
+
+
+def make_dir_if_not_exists(directory):
+    if not os.path.exists(directory):
+        os.makedirs(directory)
 
 
 class Parser:
@@ -16,6 +22,8 @@ class Parser:
         ast = parse_file(filename, use_cpp=True,
                          cpp_args=['-E', '-I'+fake_lib_path])
         self.ast = ast
+        make_dir_if_not_exists('c')
+        make_dir_if_not_exists('rust')
 
     def get_function_by_name(self, function_name):
         ast_ext = self.ast.ext
