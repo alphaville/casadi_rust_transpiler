@@ -30,7 +30,7 @@ setup(name=NAME,
             exclude=["tests", "c", "rust"]),
       include_package_data=True,
       install_requires=[
-          'pycparser'
+          'pycparser', 'casadi', 'numpy', 'jinja2'
       ],
       classifiers=[
             'Development Status :: 3 - Alpha',

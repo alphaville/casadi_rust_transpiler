@@ -1,14 +1,20 @@
 from pycparser import c_ast, c_generator, parse_file
 import re
-__all__ = ['Crust']
+import pkg_resources
+import jinja2
+import subprocess
+import shutil
+import json
+
+__all__ = ['Crust', 'CasadiRustTranspiler']
 
 
 class Parser:
 
     def __init__(self, filename):
-        # TODO: Change -Iutils/fake - use pkg_resources
+        fake_lib_path = pkg_resources.resource_filename('crust_casadi', 'utils/fake')
         ast = parse_file(filename, use_cpp=True,
-                         cpp_args=['-E', r'-Iutils/fake'])
+                         cpp_args=['-E', '-I'+fake_lib_path])
         self.ast = ast
 
     def get_function_by_name(self, function_name):
@@ -31,10 +37,12 @@ class Crust:
                             'tan': 'f64::tan',
                             'sqrt': 'f64::sqrt'}
 
-    def __init__(self, file_name, function_name):
+    def __init__(self, file_name, function_name='casadi'):
         parser = Parser(file_name)
         self.f = parser.get_function_by_name(function_name)
         self.code = None
+        self.file_name = file_name
+        self.function_name = function_name
 
     @staticmethod
     def __crust_function_mapping(fname):
@@ -106,14 +114,71 @@ class Crust:
             code += [stmt]
         return code
 
+    @staticmethod
+    def __get_template(name):
+        fake_lib_path = pkg_resources.resource_filename('crust_casadi', 'templates')
+        file_loader = jinja2.FileSystemLoader(fake_lib_path)
+        env = jinja2.Environment(loader=file_loader, autoescape=True)
+        return env.get_template(name)
+
     def parse(self):
         function = self.f
         node_body = function.body
         self.code = Crust.__crust(blocks=node_body.block_items)
 
-    def to_rust_file(self, file_name):
+    def to_rust_file(self, file_name=None, casadi_function_name='casadi'):
+        tmpl_supplement = Crust.__get_template("supplement.rs")
+        tmpl_supplement_out = tmpl_supplement.render(sz={'results': 1},
+                                                     casadi_function_name=casadi_function_name,
+                                                     file_name=file_name)
+
         with open(file_name, "w") as fh:
             fh.write("#[allow(unused_assignments)]\n"
-                     "fn casadi(arg: &[&[f64]], res: &mut [&mut [f64]]) -> u16 {\n\t")
+                     "fn %s(\n\targ: &[&[f64]],\n\tres: &mut [&mut [f64]],\n\t"
+                     "_real_workspace: &mut [f64],\n\t_int_workspace: &mut [i64],\n) -> u16 {\n\t"
+                     % casadi_function_name)
             fh.write("\n\t".join(self.code))
-            fh.write("\n}\n")
+            fh.write("\n}\n\n")
+            fh.write(tmpl_supplement_out)
+
+
+class CasadiRustTranspiler:
+
+    def __init__(self,
+                 casadi_function,
+                 function_alias,
+                 rust_dir='rust',
+                 c_dir='c'):
+        self.casadi_function = casadi_function
+        self.function_alias = function_alias
+        self.rust_dir = rust_dir
+        self.c_dir = c_dir
+
+    def transpile(self, rust_function_name=None):
+        # 1. Generate C file and move to c/
+        c_file_name = '%s.c' % self.function_alias
+        c_file_path = '%s/%s' % (self.c_dir, c_file_name)
+        self.casadi_function.generate(c_file_name)
+        shutil.move(c_file_name, c_file_path)
+
+        function_name = '%s_f0' % self.function_alias
+        crust = Crust(c_file_path, function_name)
+        crust.parse()
+        the_rust_function_name = self.function_alias if rust_function_name is None else rust_function_name
+        crust.to_rust_file("%s/%s.rs" % (self.rust_dir, self.function_alias), the_rust_function_name)
+
+    def compile(self):
+        command = ["rustc", "%s.rs" % self.function_alias]
+        p = subprocess.Popen(command, cwd=self.rust_dir, stdout=subprocess.PIPE)
+        p.communicate()
+        rc = p.returncode
+        return rc == 0
+
+    def call_rust(self, *args):
+        command = ["./%s" % self.function_alias, *[str(x) for x in args]]
+        p = subprocess.Popen(command, cwd=self.rust_dir, stdout=subprocess.PIPE)
+        p.wait()
+        line = p.stdout.readline()
+        result = json.loads(line.rstrip().decode('utf-8'))
+        p.stdout.close()
+        return result

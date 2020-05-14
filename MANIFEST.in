@@ -1,2 +1,2 @@
-include crust_casadi/**
-include utils
+include crust_casadi/utils/fake/*
+include crust_casadi/templates/**
