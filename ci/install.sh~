@@ -4,7 +4,7 @@ set -euxo pipefail
 main() {
     # Install necessary stuff
     sudo pip install --upgrade pip
-    sudo pip install --upgrade virtualenv
+    sudo pip install --upgrade virtualenv 
 }
 
 main
