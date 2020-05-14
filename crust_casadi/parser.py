@@ -22,8 +22,6 @@ class Parser:
         ast = parse_file(filename, use_cpp=True,
                          cpp_args=['-E', '-I'+fake_lib_path])
         self.ast = ast
-        make_dir_if_not_exists('c')
-        make_dir_if_not_exists('rust')
 
     def get_function_by_name(self, function_name):
         ast_ext = self.ast.ext
@@ -192,6 +190,8 @@ class CasadiRustTranspiler:
         self.function_alias = function_alias
         self.rust_dir = rust_dir
         self.c_dir = c_dir
+        make_dir_if_not_exists(c_dir)
+        make_dir_if_not_exists(rust_dir)
 
     def transpile(self, rust_function_name=None):
         # 1. Generate C file and move to c/
