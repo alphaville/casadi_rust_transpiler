@@ -18,6 +18,7 @@ matrix:
             - python3.6-dev
       env:
         - PYTHON_VERSION=3.6
+      rust: stable
       python: "3.6"
 
 
