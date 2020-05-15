@@ -5,7 +5,7 @@ import io
 import os
 
 NAME = 'crust_casadi'
-VERSION = '0.0.0'
+VERSION = '0.0.1'
 DESCRIPTION = 'C-to-Rust Transpiler for CasADi C files'
 
 here = os.path.abspath(os.path.dirname(__file__))
