@@ -58,13 +58,13 @@ class Crust:
 
     @staticmethod
     def __crust_function_mapping(fname):
-        p = re.compile('[a-z_]+_fmax', re.IGNORECASE)
+        p = re.compile('[a-z_0-9]+_fmax', re.IGNORECASE)
         if p.match(fname) is not None:
             return 'f64::max'
-        p = re.compile('[a-z_]+_fmin', re.IGNORECASE)
+        p = re.compile('[a-z_0-9]+_fmin', re.IGNORECASE)
         if p.match(fname) is not None:
             return 'f64::min'
-        p = re.compile('[a-z_]+_sign', re.IGNORECASE)
+        p = re.compile('[a-z_0-9]+_sign', re.IGNORECASE)
         if p.match(fname) is not None:
             return 'f64::signum'
         return Crust.__CRUST_FUNCTION_MAP[fname]
@@ -88,6 +88,22 @@ class Crust:
             raise Exception("Unknown node type")
 
     @staticmethod
+    def __ternary_to_rust(rhs):
+        # There are two sorts of ternary expressions in CasADi files:
+        # - expressions of the form `a0=arg[2]? arg[2][0] : 0;`, that
+        #   essentially check whether an argument is NULL, and
+        # - actual ternary expressions, such as `a3=(a2?a3:0);`
+        # To distinguish between the two we need to check the condition
+        generator = c_generator.CGenerator()
+        if isinstance(rhs.cond, c_ast.ArrayRef) and rhs.cond.name.name == 'arg':
+            return generator.visit(rhs.iftrue)
+        else:
+            return "if f64::abs(%s) > f64::EPSILON {%s} else {%s_f64}" \
+                   % (generator.visit(rhs.cond),
+                      generator.visit(rhs.iftrue),
+                      generator.visit(rhs.iffalse))
+
+    @staticmethod
     def __assignment_to_rust(dec):
         var_name = dec.lvalue.name
         rhs = dec.rvalue
@@ -104,7 +120,7 @@ class Crust:
                 stmt += op_left + operator + op_right
         elif isinstance(rhs, c_ast.FuncCall):
             fname = rhs.name.name
-            p = re.compile('[a-z_]+_[a-z]+_sq', re.IGNORECASE)
+            p = re.compile('[a-z0-9_]+_sq', re.IGNORECASE)
             if p.match(fname) is not None:
                 stmt += 'f64::powi(' + Crust.__unwrap(rhs.args.exprs[0]) + ', 2)'
             else:
@@ -114,7 +130,7 @@ class Crust:
         elif isinstance(rhs, c_ast.Constant):
             stmt += generator.visit(rhs)
         elif isinstance(rhs, c_ast.TernaryOp):
-            stmt += generator.visit(rhs.iftrue)
+            stmt += Crust.__ternary_to_rust(rhs)
         elif isinstance(rhs, c_ast.UnaryOp):
             rhs_var = Crust.__unwrap(rhs.expr)
             if rhs.op == '!':
